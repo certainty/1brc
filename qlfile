@@ -4,4 +4,7 @@ ql serapeum
 ql fast-io
 ql lisp-unit2
 ql flexi-streams
+ql split-sequence
+ql parse-float
 ultralisp veer66-stream-par-procs
+ultralisp 40ants-cl-flamegraph

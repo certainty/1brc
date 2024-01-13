@@ -8,7 +8,7 @@
 (defun run-tests ()
   (run-tests :name "system" :package '(:1brc.tests)))
 
-(defvar sample-file
+(defvar sample-chunk
   "
 Hamburg;12.0
 Bulawayo;8.9
