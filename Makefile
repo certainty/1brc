@@ -1,6 +1,9 @@
-.PHONY: build
+.PHONY: build test
 
 all: build
+
+test:
+	@qlot exec ros -Q run -e '(asdf:test-system :1brc)' --quit
 
 run: build
 	bin/1brc 2>/dev/null

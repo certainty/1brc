@@ -2,4 +2,6 @@ ql mmap
 ql alexandria
 ql serapeum
 ql fast-io
+ql lisp-unit2
+ql flexi-streams
 ultralisp veer66-stream-par-procs
