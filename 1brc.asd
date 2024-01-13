@@ -7,6 +7,9 @@
   :build-operation "deploy-op"
   :build-pathname "1brc"
   :entry-point "1brc:main"
+
+  :depends-on (:alexandria :serapeum :fast-io :mmap)
+
   :serial t
   :pathname "src/"
   :components
