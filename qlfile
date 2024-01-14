@@ -6,5 +6,6 @@ ql lisp-unit2
 ql flexi-streams
 ql split-sequence
 ql parse-float
+ql lparallel
 ultralisp veer66-stream-par-procs
 ultralisp 40ants-cl-flamegraph

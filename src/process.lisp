@@ -2,8 +2,10 @@
 
 (require :sb-sprof)
 
-(eval-when (:compile-toplevel)
-  (declaim (optimize (speed 3) (safety 0) (debug 0))))
+(defparameter *memory-limit* (the fixnum (ceiling (* 1 1024 1024 1024))) "The available memory to use")
+(defparameter *cpu-limit* (the fixnum 4) "The number of CPUs we can use")
+(defparameter *worker-count* (the fixnum 8) "The number of threads to use for processing")
+(defparameter *max-unique-stations* (the fixnum 10))
 
 (defstruct %station
   (max-temp 0.0 :type short-float)
@@ -12,44 +14,19 @@
   (sum 0.0 :type single-float))
 
 (defun make-station-table ()
-  (make-hash-table :test #'equal))
+  (make-hash-table
+   :test #'equal
+   :size *max-unique-stations*
+   :synchronized nil))
 
-(defun process (path)
-  (with-open-file (stream path)
-    (time
-     (sb-sprof:with-profiling (:report :flat :threads :all)
-       (%process-simple stream)))))
+(-> make-process-table () hash-table)
+(defun make-process-table ()
+  (make-hash-table
+   :test #'equal
+   :size *max-unique-stations*
+   :synchronized nil))
 
-(-> forward (hash-table function) t)
-(defun forward (hash-tab send-fn)
-  (declare (optimize (speed 3) (safety 0) (debug 0)))
-
-  (funcall send-fn hash-tab))
-
-(defun process-line (line line-no hash-tab send-fn)
-  (declare (ignore send-fn line-no) (optimize (speed 3) (safety 0) (debug 0)))
-
-  #+print-progress
-  (when (zerop (mod line-no 100000))
-    (format t "~&~A" line-no))
-
-  (let* ((parts (split-sequence:split-sequence #\; line))
-         (station (first parts))
-         (temp-value (the short-float (parse-float:parse-float (second parts))))
-         (record (gethash station hash-tab)))
-    (cond
-      ((null record)
-       (setf (gethash station hash-tab)
-             (make-%station :min-temp temp-value :max-temp temp-value :count 1 :sum temp-value)))
-      (t
-       (incf (%station-count record))
-       (when (> temp-value (%station-max-temp record))
-         (setf (%station-max-temp record) temp-value))
-       (when (< temp-value (%station-min-temp record))
-         (setf (%station-min-temp record) temp-value))
-       (incf (%station-sum record) temp-value))))
-  hash-tab)
-
+(-> merge-station-tables (hash-table hash-table))
 (defun merge-station-tables (table-from-proc main-table)
   "Merge `table-from-proc' into `main-table'. This updates the station records in `main-table' with the values from `table-from-proc'.
   Since all values commute, this is easily doable"
@@ -69,12 +46,107 @@
                     (setf (%station-min-temp main-record) (%station-min-temp record)))
                   (incf (%station-sum main-record) (%station-sum record))))))))
 
-(defun %process-simple (stream)
-  (stream-par-procs:process
-   stream
-   #'process-line
-   :num-of-procs 4
-   :init-proc-state-fn #'make-station-table
-   :init-collect-state-fn #'make-station-table
-   :process-end-of-stream-hook-fn #'forward
-   :collect-fn #'merge-station-tables))
+(-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
+(defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
+  "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (loop :for i :of-type fixnum :from start :below ptr-size
+        :for j :of-type fixnum :from 0
+        :for byte := (cffi:mem-aref ptr :char i)
+        :until (= byte 10) ; newline
+        :do (setf (aref buffer j) (code-char byte))
+        :finally (return (1+ j))))
+
+(-> compute-optimal-chunk-size (fixnum &key (:memory-limit fixnum) (:worker-count fixnum)) fixnum)
+(defun compute-optimal-chunk-size (file-size &key (memory-limit *memory-limit*) (worker-count *worker-count*))
+  "Make a good suggestion for the chunk-size to use. The constraint it tries to follow is to make sure that all the chunks that are worked on by the workers fit in the provided memory,to prevent page thrashing."
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((max-worker-memory  (truncate memory-limit worker-count)))
+    (ceiling (min max-worker-memory file-size))))
+
+(-> compute-segments (t fixnum fixnum) list)
+(defun compute-segments (ptr ptr-size minimum-chunk-size)
+  "Computes the segments of the foreign pointer `ptr' of size `ptr-size'. The segments are at least `minimum-chunk-size' bytes long. Returns a list of (start end) pairs.
+   Segments are aligned at newline characters and will always include the final newline character.
+   The segments don't overlap and will be in ascending order.
+  "
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((segments (list))
+        (start (the (integer 0 *) 0)))
+    (loop :for end :of-type fixnum := (min (+ start minimum-chunk-size) ptr-size)
+          :while (< end ptr-size)
+          :do (setf end (forward-find-newline ptr ptr-size end))
+              (unless (null end)
+                (push (cons start end) segments))
+              (setf start (1+ end))
+          :finally (return (nreverse segments)))))
+
+(-> forward-find-newline (t fixnum fixnum) (or null fixnum))
+(defun forward-find-newline (ptr ptr-size start)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (loop :for i :of-type fixnum :from start :below ptr-size
+        :for byte := (cffi:mem-aref ptr :char i)
+        :until (= byte 10)
+        :finally
+           (if (= i ptr-size)
+               (return nil)
+               (return i))))
+
+(-> process-chunk (hash-table simple-string t fixnum fixnum fixnum))
+(defun process-chunk (hash-tab buffer ptr ptr-size start end)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((offset start)
+        (line-size 0))
+    (loop
+      (when (>= (the fixnum offset) end)
+        (return))
+      (setf line-size (the fixnum (read-line-from-foreign-ptr-into ptr ptr-size offset buffer)))
+      (when (= line-size 0)
+        (return))
+      (incf offset line-size)
+      (multiple-value-bind (station-name temperature) (parse-line buffer)
+        (let ((record (gethash station-name hash-tab)))
+          (cond
+            ((null record)
+             (setf (gethash station-name hash-tab)
+                   (make-%station :min-temp temperature :max-temp temperature :count 1 :sum temperature)))
+            (t
+             (incf (%station-count record))
+             (when (> temperature (%station-max-temp record))
+               (setf (%station-max-temp record) temperature))
+             (when (< temperature (%station-min-temp record))
+               (setf (%station-min-temp record) temperature))
+             (incf (%station-sum record) temperature))))))))
+
+(-> processing-task (lparallel.queue:queue t fixnum) hash-table)
+(defun processing-task (segment-queue ptr ptr-size)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((hash-tab (make-process-table))
+        (buffer (make-string 80)))
+    (loop :for segment = (lparallel.queue:try-pop-queue segment-queue)
+          :while segment
+          :do (process-chunk hash-tab buffer ptr ptr-size (car segment) (cdr segment))
+          :finally (return hash-tab))))
+
+(defun process-file (path)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((lparallel:*kernel* (lparallel:make-kernel *cpu-limit*)))
+    (mmap:with-mmap (ptr fd ptr-size path)
+      (declare (ignore fd))
+      (let* ((chunk-size (compute-optimal-chunk-size ptr-size))
+             (segments (compute-segments ptr ptr-size chunk-size))
+             (segment-queue (lparallel.queue:make-queue :fixed-capacity (length segments)))
+             (channel (lparallel:make-channel)))
+        (loop :for segment :in segments :do (lparallel.queue:push-queue segment segment-queue))
+        (loop :for i :of-type fixnum :from 0 :below *worker-count*
+              :do (lparallel:submit-task channel (lambda () (processing-task segment-queue ptr ptr-size))))
+        (loop
+          :with result = (make-station-table)
+          :for i :of-type fixnum :from 0 :below *worker-count*
+          :do
+             (merge-station-tables (lparallel:receive-result channel) result)
+          :finally (return result))))))
+
+(defun try-it (path)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (format t "~a~%" (process-file path)))

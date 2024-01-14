@@ -15,15 +15,17 @@
                :stream-par-procs
                :split-sequence
                :parse-float
+               :lparallel
                :sb-sprof
                :flamegraph
-               )
+               :cffi)
   :in-order-to ((test-op (test-op "1brc/tests")))
   :serial t
   :pathname "src/"
   :components
   ((:file "packages")
    (:file "fixtures")
+   (:file "parse")
    (:file "process")
    (:file "main")))
 

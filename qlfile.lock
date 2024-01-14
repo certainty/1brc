@@ -34,6 +34,10 @@
  (:class qlot/source/ql:source-ql
   :initargs (:%version :latest)
   :version "ql-2023-10-21"))
+("lparallel" .
+ (:class qlot/source/ql:source-ql
+  :initargs (:%version :latest)
+  :version "ql-2023-10-21"))
 ("veer66-stream-par-procs" .
  (:class qlot/source/ultralisp:source-ultralisp
   :initargs (:%version :latest)
