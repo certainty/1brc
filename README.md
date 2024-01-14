@@ -11,4 +11,13 @@ We will see.
 
 ## How to run 
 
-TBD
+set the filename in `main.lisp`
+
+  ``` shell
+$ make
+$ DATA_FILE=/path/to/file ./bin/1brc 
+  ```
+  
+You can tweak the behavior by setting the `WORKER_COUNT` and `CHUNK_SIZE` variables.
+
+  
