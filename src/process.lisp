@@ -1,7 +1,7 @@
 (in-package :1brc)
 
 
-(defparameter *max-unique-stations* (the fixnum 10))
+(defparameter *max-unique-stations* (the fixnum 10000))
 (defparameter *worker-count* (the fixnum 16) "The number of threads to use for processing")
 (defparameter *chunk-size* (the fixnum (* 100 1024 1024)))
 
