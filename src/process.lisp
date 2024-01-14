@@ -1,10 +1,8 @@
 (in-package :1brc)
 
-(require :sb-sprof)
-
 (defparameter *max-unique-stations* (the fixnum 10))
-(defparameter *worker-count* (the fixnum 32) "The number of threads to use for processing")
-(defparameter *chunk-size* (the fixnum (* 50 1024 1024)))
+(defparameter *worker-count* (the fixnum 16) "The number of threads to use for processing")
+(defparameter *chunk-size* (the fixnum (* 100 1024 1024)))
 
 (defstruct %station
   (max-temp 0.0 :type short-float)
@@ -114,8 +112,17 @@
                (setf (%station-min-temp record) temperature))
              (incf (%station-sum record) temperature))))))))
 
-(-> processing-task (lparallel.queue:queue t fixnum) hash-table)
-(defun processing-task (segment-queue ptr ptr-size)
+
+(-> processing-task (list t fixnum) hash-table)
+(defun processing-task (segment ptr ptr-size)
+  (declare (optimize (speed 3) (safety 0) (debug 0)))
+  (let ((buffer (make-string 80))
+        (hash-tab (make-process-table)))
+    (process-chunk hash-tab buffer ptr ptr-size (car segment) (cdr segment))
+    hash-tab))
+
+(-> processing-task2 (lparallel.queue:queue t fixnum) hash-table)
+(defun processing-task2 (segment-queue ptr ptr-size)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
   (let  ((buffer (make-string 80))
          (hash-tab (make-process-table)))
@@ -129,28 +136,27 @@
   (let ((lparallel:*kernel* (lparallel:make-kernel *worker-count*)))
     (mmap:with-mmap (ptr fd ptr-size path)
       (declare (ignore fd))
-      (let* ((chunk-size (compute-optimal-chunk-size ptr-size))
+      (let* ((chunk-size *chunk-size*)
              (segments (compute-segments ptr ptr-size chunk-size))
              (segment-queue (lparallel.queue:make-queue :fixed-capacity (length segments)))
-             (channel (lparallel:make-channel)))
+             (channel (lparallel:make-channel))
+             (number-of-receives (length segments))
+             (result (make-station-table)))
+        (declare (ignorable segment-queue))
 
         (format t "~%Processing file ~a with ~a segments of size ~a~%" path (length segments) chunk-size)
         (format t "Using ~a workers~%" *worker-count*)
-        (format t "Using ~a bytes of memory~%" *memory-limit*)
 
         (loop :for segment :in segments
-              :do (lparallel.queue:push-queue segment segment-queue))
+              :do (lparallel:submit-task channel (lambda () (processing-task segment ptr ptr-size))))
 
-        (loop :for i :of-type fixnum :from 0 :below *worker-count*
-              :do (lparallel:submit-task channel (lambda () (processing-task segment-queue ptr ptr-size))))
-        (loop
-          :with result = (make-station-table)
-          :for i :of-type fixnum :from 0 :below *worker-count*
-          :do (let ((table (lparallel:receive-result channel)))
-                (when table
-                  (merge-station-tables table result)))
-          :finally (return result))))))
+        (loop :for i :of-type fixnum :from 1 :to number-of-receives
+              :do (let ((table (lparallel:receive-result channel)))
+                    (when table
+                      (merge-station-tables table result)))
+              :finally (return result))))))
 
 (defun try-it (path)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (process-file path))
+  (let ((result (process-file path)))
+    (format t "~%~a~%" result)))
