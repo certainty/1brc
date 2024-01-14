@@ -2,10 +2,9 @@
 
 (require :sb-sprof)
 
-(defparameter *memory-limit* (the fixnum (ceiling (* 1 1024 1024 1024))) "The available memory to use")
-(defparameter *cpu-limit* (the fixnum 4) "The number of CPUs we can use")
-(defparameter *worker-count* (the fixnum 8) "The number of threads to use for processing")
 (defparameter *max-unique-stations* (the fixnum 10))
+(defparameter *worker-count* (the fixnum 32) "The number of threads to use for processing")
+(defparameter *chunk-size* (the fixnum (* 50 1024 1024)))
 
 (defstruct %station
   (max-temp 0.0 :type short-float)
@@ -57,13 +56,6 @@
         :do (setf (aref buffer j) (code-char byte))
         :finally (return (1+ j))))
 
-(-> compute-optimal-chunk-size (fixnum &key (:memory-limit fixnum) (:worker-count fixnum)) fixnum)
-(defun compute-optimal-chunk-size (file-size &key (memory-limit *memory-limit*) (worker-count *worker-count*))
-  "Make a good suggestion for the chunk-size to use. The constraint it tries to follow is to make sure that all the chunks that are worked on by the workers fit in the provided memory,to prevent page thrashing."
-  (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (let ((max-worker-memory  (truncate memory-limit worker-count)))
-    (ceiling (min max-worker-memory file-size))))
-
 (-> compute-segments (t fixnum fixnum) list)
 (defun compute-segments (ptr ptr-size minimum-chunk-size)
   "Computes the segments of the foreign pointer `ptr' of size `ptr-size'. The segments are at least `minimum-chunk-size' bytes long. Returns a list of (start end) pairs.
@@ -73,6 +65,10 @@
   (declare (optimize (speed 3) (safety 0) (debug 0)))
   (let ((segments (list))
         (start (the (integer 0 *) 0)))
+
+    (when (>= minimum-chunk-size ptr-size)
+      (return-from compute-segments (list (cons start ptr-size))))
+
     (loop :for end :of-type fixnum := (min (+ start minimum-chunk-size) ptr-size)
           :while (< end ptr-size)
           :do (setf end (forward-find-newline ptr ptr-size end))
@@ -121,8 +117,8 @@
 (-> processing-task (lparallel.queue:queue t fixnum) hash-table)
 (defun processing-task (segment-queue ptr ptr-size)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (let ((hash-tab (make-process-table))
-        (buffer (make-string 80)))
+  (let  ((buffer (make-string 80))
+         (hash-tab (make-process-table)))
     (loop :for segment = (lparallel.queue:try-pop-queue segment-queue)
           :while segment
           :do (process-chunk hash-tab buffer ptr ptr-size (car segment) (cdr segment))
@@ -130,23 +126,31 @@
 
 (defun process-file (path)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (let ((lparallel:*kernel* (lparallel:make-kernel *cpu-limit*)))
+  (let ((lparallel:*kernel* (lparallel:make-kernel *worker-count*)))
     (mmap:with-mmap (ptr fd ptr-size path)
       (declare (ignore fd))
       (let* ((chunk-size (compute-optimal-chunk-size ptr-size))
              (segments (compute-segments ptr ptr-size chunk-size))
              (segment-queue (lparallel.queue:make-queue :fixed-capacity (length segments)))
              (channel (lparallel:make-channel)))
-        (loop :for segment :in segments :do (lparallel.queue:push-queue segment segment-queue))
+
+        (format t "~%Processing file ~a with ~a segments of size ~a~%" path (length segments) chunk-size)
+        (format t "Using ~a workers~%" *worker-count*)
+        (format t "Using ~a bytes of memory~%" *memory-limit*)
+
+        (loop :for segment :in segments
+              :do (lparallel.queue:push-queue segment segment-queue))
+
         (loop :for i :of-type fixnum :from 0 :below *worker-count*
               :do (lparallel:submit-task channel (lambda () (processing-task segment-queue ptr ptr-size))))
         (loop
           :with result = (make-station-table)
           :for i :of-type fixnum :from 0 :below *worker-count*
-          :do
-             (merge-station-tables (lparallel:receive-result channel) result)
+          :do (let ((table (lparallel:receive-result channel)))
+                (when table
+                  (merge-station-tables table result)))
           :finally (return result))))))
 
 (defun try-it (path)
   (declare (optimize (speed 3) (safety 0) (debug 0)))
-  (format t "~a~%" (process-file path)))
+  (process-file path))
