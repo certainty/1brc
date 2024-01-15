@@ -1,5 +1,7 @@
 (in-package :1brc)
 
+(require :sb-sprof)
+
 (defun configure-from-env ()
   (let ((configured-worker-count (uiop:getenv "WORKER_COUNT"))
         (configured-chunk-size (uiop:getenv "CHUNK_SIZE"))
@@ -14,6 +16,8 @@
 
 (defun main()
   (let* ((file-path (configure-from-env))
-         (result (time (process-file file-path))))
-    (format t "~&Result: ~A~%" result)
-    (print-result result)))
+         (result
+           (sb-sprof:with-profiling (:threads :all :report :flat)
+             (process-file file-path))))
+                                        ; (print-result result)
+    ))

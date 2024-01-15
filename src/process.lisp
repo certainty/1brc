@@ -3,7 +3,7 @@
 (proclaim '(optimize (speed 3) (safety 0) (debug 0)))
 
 ;;; Some tweaks to experiment and find the best settings
-(defparameter *max-unique-stations* (the fixnum 10000) "The maximum number of unique stations to expect in the input file")
+(defparameter *max-unique-stations* (the fixnum 600) "The maximum number of unique stations to expect in the input file")
 (defparameter *worker-count* (the fixnum 20) "The number of threads to use for processing")
 (defparameter *chunk-size* (the fixnum (* 50 1024 1024)) "The size of the chunks to process per thread")
 
@@ -36,43 +36,16 @@
                            (- (float (/ num 10)))
                            (float (/ num 10)))))))
 
-;; (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
-;;   "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
-
-;;   (loop :for i :of-type fixnum :from start :below ptr-size
-;;         :for j :of-type fixnum :from 0
-;;         :for byte := (cffi:mem-aref ptr :char i)
-;;         :until (= byte 10)              ; newline
-;;         :do (setf (aref buffer j) (code-char byte))
-;;         :finally (return (1+ j))))
-
-(declaim (inline utf8-multibyte-start-p))
-(defun utf8-multibyte-start-p (byte)
-  (let ((mask (ash 1 (- 7 1))))
-    (zerop (logand mask byte))))
-
 (-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
 (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
   "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
-  ;; we need to handle unicode characters as well, so a simple byte-wise approach will not work
-  (let ((i start)
-        (j (the fixnum 0))
-        (byte (the (unsigned-byte 8) 0)))
-    (loop
-      (when (>= i ptr-size)
-        (return))
-      (setf byte (cffi:mem-aref ptr :uchar i))
-      (cond
-        ((= byte 10)
-         (return))
-        ((< byte 0)
-         (incf i)
-         ;; this doesn't work yet
-         (setf (aref buffer j) (code-char (+ (* 256 byte) (cffi:mem-aref ptr :char i)))))
-        (t (setf (aref buffer j) (code-char byte))))
-      (incf j)
-      (incf i))
-    (1+ j)))
+
+  (loop :for i :of-type fixnum :from start :below ptr-size
+        :for j :of-type fixnum :from 0
+        :for byte := (cffi:mem-aref ptr :uchar i)
+        :until (= byte 10)              ; newline
+        :do (setf (aref buffer j) (code-char byte)) ;; this doesn't work with unicode bytes (we use unsigned char which will read bytes up to 255 instead of 127)
+        :finally (return (1+ j))))
 
 (-> compute-segments (t fixnum fixnum) list)
 (defun compute-segments (ptr ptr-size minimum-chunk-size)
@@ -99,10 +72,10 @@
   (loop :for i :of-type fixnum :from start :below ptr-size
         :for byte := (cffi:mem-aref ptr :char i)
         :until (= byte 10)
-        :finally
-           (if (= i ptr-size)
-               (return nil)
-               (return i))))
+        :finally (return i)
+                 (if (= i ptr-size)
+                     (return nil)
+                     (return i))))
 
 (-> process-chunk (hash-table simple-string t fixnum fixnum fixnum) hash-table)
 (defun process-chunk (hash-tab buffer ptr ptr-size start end)
@@ -114,7 +87,6 @@
           (return hash-tab))
         (setf line-size (the fixnum (read-line-from-foreign-ptr-into ptr ptr-size offset buffer)))
         (incf offset line-size)
-        (format t "~a ~a~%" line-size (subseq buffer 0 (1- line-size)))
         (multiple-value-bind (station-name temperature) (parse-line buffer line-size)
           (let ((record (gethash station-name hash-tab)))
             (cond
