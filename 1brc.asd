@@ -24,8 +24,7 @@
   :pathname "src/"
   :components
   ((:file "packages")
-   (:file "fixtures")
-   (:file "parse")
+   (:file "generate")
    (:file "process")
    (:file "main")))
 

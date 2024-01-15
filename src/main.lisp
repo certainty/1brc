@@ -1,17 +1,19 @@
 (in-package :1brc)
 
-(defparameter *data-dir* #p"/Users/david.krentzlin/Private/1brc/data/")
-
-(defun main()
-  (let ((file-path (or (uiop:getenv-pathname "DATA_FILE") (merge-pathnames "100mio.lines" *data-dir*)))
-        (configured-worker-count (uiop:getenv "WORKER_COUNT"))
-        (configured-chunk-size (uiop:getenv "CHUNK_SIZE")))
-
+(defun configure-from-env ()
+  (let ((configured-worker-count (uiop:getenv "WORKER_COUNT"))
+        (configured-chunk-size (uiop:getenv "CHUNK_SIZE"))
+        (path (uiop:getenv-pathname "DATA_FILE")))
     (when configured-worker-count
       (setf *worker-count* (parse-integer configured-worker-count)))
-
     (when configured-chunk-size
       (setf *chunk-size* (parse-integer configured-chunk-size)))
+    (unless path
+      (error "DATA_FILE environment variable not set."))
+    path))
 
-    (let ((result (time (process-file file-path))))
-      (format t "~A~%~A~%" result "Done."))))
+(defun main()
+  (let* ((file-path (configure-from-env))
+         (result (time (process-file file-path))))
+    (format t "~&Result: ~A~%" result)
+    (print-result result)))
