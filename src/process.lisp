@@ -36,15 +36,43 @@
                            (- (float (/ num 10)))
                            (float (/ num 10)))))))
 
+;; (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
+;;   "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
+
+;;   (loop :for i :of-type fixnum :from start :below ptr-size
+;;         :for j :of-type fixnum :from 0
+;;         :for byte := (cffi:mem-aref ptr :char i)
+;;         :until (= byte 10)              ; newline
+;;         :do (setf (aref buffer j) (code-char byte))
+;;         :finally (return (1+ j))))
+
+(declaim (inline utf8-multibyte-start-p))
+(defun utf8-multibyte-start-p (byte)
+  (let ((mask (ash 1 (- 7 1))))
+    (zerop (logand mask byte))))
+
 (-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
 (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
   "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
-  (loop :for i :of-type fixnum :from start :below ptr-size
-        :for j :of-type fixnum :from 0
-        :for byte := (cffi:mem-aref ptr :char i)
-        :until (= byte 10) ; newline
-        :do (setf (aref buffer j) (code-char byte))
-        :finally (return (1+ j))))
+  ;; we need to handle unicode characters as well, so a simple byte-wise approach will not work
+  (let ((i start)
+        (j (the fixnum 0))
+        (byte (the (unsigned-byte 8) 0)))
+    (loop
+      (when (>= i ptr-size)
+        (return))
+      (setf byte (cffi:mem-aref ptr :uchar i))
+      (cond
+        ((= byte 10)
+         (return))
+        ((< byte 0)
+         (incf i)
+         ;; this doesn't work yet
+         (setf (aref buffer j) (code-char (+ (* 256 byte) (cffi:mem-aref ptr :char i)))))
+        (t (setf (aref buffer j) (code-char byte))))
+      (incf j)
+      (incf i))
+    (1+ j)))
 
 (-> compute-segments (t fixnum fixnum) list)
 (defun compute-segments (ptr ptr-size minimum-chunk-size)
@@ -86,6 +114,7 @@
           (return hash-tab))
         (setf line-size (the fixnum (read-line-from-foreign-ptr-into ptr ptr-size offset buffer)))
         (incf offset line-size)
+        (format t "~a ~a~%" line-size (subseq buffer 0 (1- line-size)))
         (multiple-value-bind (station-name temperature) (parse-line buffer line-size)
           (let ((record (gethash station-name hash-tab)))
             (cond
@@ -101,7 +130,7 @@
 
 (-> processing-task (list t fixnum) hash-table)
 (defun processing-task (segment ptr ptr-size)
-  (let ((buffer (make-string 100))
+  (let ((buffer (make-string 40))
         (hash-tab (make-process-table)))
     (process-chunk hash-tab buffer ptr ptr-size (car segment) (cdr segment))))
 
