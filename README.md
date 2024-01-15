@@ -20,4 +20,17 @@ $ DATA_FILE=/path/to/file ./bin/1brc
   
 You can tweak the behavior by setting the `WORKER_COUNT` and `CHUNK_SIZE` variables.
 
+## Todo 
+
+- [ ] compute the final result (I did not bother doing that yet, since this is the trivial part)
+- [ ] try it with a file generated with code from the example repository 
+
+## Results
+
+I'm not happy with this yet. It processes 100 million rows in 16 seconds on my machine, which is a relatively beefy Apple Mac Book Pro M2.
+That said, I'm a noob when it comes to writing efficient common lisp. 
+The overall approach is sane I believe but I don't get down to the numbers the java implementations get.
+I'm consinge quite a bit and GC time amounts to 3 seconds, allthough I tried to write low allocation code. I guess I didn't succeed :D 
+
+
   
