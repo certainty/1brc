@@ -4,7 +4,7 @@
 
 ;;; Some tweaks to experiment and find the best settings
 (defparameter *max-unique-stations* (the fixnum 10000) "The maximum number of unique stations to expect in the input file")
-(defparameter *worker-count* (the fixnum 16) "The number of threads to use for processing")
+(defparameter *worker-count* (the fixnum 20) "The number of threads to use for processing")
 (defparameter *chunk-size* (the fixnum (* 50 1024 1024)) "The size of the chunks to process per thread")
 
 (defstruct %station
@@ -25,13 +25,16 @@
 (-> parse-simple-float ((simple-array character *)) short-float)
 (defun parse-simple-float (str)
   "Parses a simple floating point number, which is guaranteed to have a single decimal point."
-  (loop
-    :with zero = (char-code #\0)
-    :with num :of-type fixnum := 0
-    :for c :of-type character :across str
-    :unless (char= c #\.)
-      :do (setq num (the fixnum (+ (* num 10) (- (the fixnum (char-code c)) zero))))
-    :finally (return (float (/ num 10)))))
+  (let ((signed (char= (aref str 0) #\-)))
+    (loop
+      :with zero = (char-code #\0)
+      :with num :of-type fixnum := 0
+      :for c :of-type character :across str
+      :unless (or (char= c #\.) (char= c #\-))
+        :do (setq num (the fixnum (+ (* num 10) (- (the fixnum (char-code c)) zero))))
+      :finally (return (if signed
+                           (- (float (/ num 10)))
+                           (float (/ num 10)))))))
 
 (-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
 (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
@@ -120,6 +123,7 @@
           (dolist (segment segments)
             (lparallel:submit-task channel (lambda () (processing-task segment ptr ptr-size))))
 
+          (format t "Waiting for ~a results~%" (length segments))
           (dotimes (i (length segments))
             (a:when-let ((table (lparallel:receive-result channel)))
               (merge-station-tables table result))))))))
@@ -141,7 +145,7 @@
 (-> merge-station-tables (hash-table hash-table))
 (defun merge-station-tables (table-from-proc main-table)
   "Merge `table-from-proc' into `main-table'. This updates the station records in `main-table' with the values from `table-from-proc'.
-  Since all values commute, this is easily doable"
+Since all values commute, this is easily doable"
   (prog1 main-table
     (loop :for station :being :each :hash-key :of table-from-proc :using (hash-value record)
           :do
