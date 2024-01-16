@@ -39,7 +39,6 @@
 (-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
 (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
   "Attempts to read a line from the foreign pointer `ptr'. The line is stored in `buffer'. Returns the number of bytes read"
-
   (loop :for i :of-type fixnum :from start :below ptr-size
         :for j :of-type fixnum :from 0
         :for byte := (cffi:mem-aref ptr :uchar i)
