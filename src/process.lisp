@@ -1,6 +1,6 @@
 (in-package :1brc)
 
-(proclaim '(optimize (speed 3) (safety 0) (debug 0)))
+(declaim (optimize (speed 3) (safety 0) (debug 0)))
 
 ;;; Some tweaks to experiment and find the best settings
 (defparameter *max-unique-stations* (the fixnum 600) "The maximum number of unique stations to expect in the input file")
