@@ -22,7 +22,7 @@ You can tweak the behavior by setting the `WORKER_COUNT` and `CHUNK_SIZE` variab
 
 ## Todo 
 
-- [ ] try it with a file generated with code from the example repository 
+- [x] try it with a file generated with code from the example repository 
 
 ## Results
 
