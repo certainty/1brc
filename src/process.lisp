@@ -165,5 +165,11 @@ Since all values commute, this is easily doable"
   (let ((keys (sort (a:hash-table-keys station-table) #'string<)))
     (dolist (key keys)
       (let ((record (gethash key station-table)))
-        (format t "~30,a min: ~,2f max: ~,2f mean: ~,2f~%" key (%station-min-temp record) (%station-max-temp record) (/ (%station-sum record) (%station-count record)))))))
+        (format t "~30,a min: ~,2f max: ~,2f mean: ~,2f~%" (format-station key) (%station-min-temp record) (%station-max-temp record) (/ (%station-sum record) (%station-count record)))))))
 
+(defun format-station (vec)
+  (loop :with buffer = (make-array (length vec) :element-type '(unsigned-byte 8))
+        :for c :across vec
+        :for j :from 0
+        :do (setf (aref buffer j) (char-code c))
+        :finally (return (babel:octets-to-string buffer :encoding :utf-8))))

@@ -29,4 +29,4 @@
 
 (defun run-file (file-path)
   (let ((result (time (process-file file-path))))
-    (format t "~a~%" result)))
+    (print-result result)))
