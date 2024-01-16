@@ -28,6 +28,9 @@ You can tweak the behavior by setting the `WORKER_COUNT` and `CHUNK_SIZE` variab
 
 On my machine, this version runs in ~35 seconds.
 It is a relatively beefy Apple Mac Book Pro M2.
+That includes roughly 3 seconds of GC time, which I think I should be able to shave off, given that the fasted Java solution takes less that this in total. 
 
 That said, I'm a noob when it comes to writing efficient common lisp. 
 The overall approach is sane I believe but I don't get down to the numbers the java implementations get.
+
+I wont, for now, attempt to optimize this further.

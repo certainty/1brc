@@ -1,11 +1,7 @@
 ql mmap
 ql alexandria
 ql serapeum
-ql fast-io
 ql lisp-unit2
-ql flexi-streams
-ql split-sequence
-ql parse-float
 ql lparallel
-ultralisp veer66-stream-par-procs
+ql babel
 ultralisp 40ants-cl-flamegraph

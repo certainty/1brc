@@ -14,23 +14,7 @@
  (:class qlot/source/ql:source-ql
   :initargs (:%version :latest)
   :version "ql-2023-10-21"))
-("fast-io" .
- (:class qlot/source/ql:source-ql
-  :initargs (:%version :latest)
-  :version "ql-2023-10-21"))
 ("lisp-unit2" .
- (:class qlot/source/ql:source-ql
-  :initargs (:%version :latest)
-  :version "ql-2023-10-21"))
-("flexi-streams" .
- (:class qlot/source/ql:source-ql
-  :initargs (:%version :latest)
-  :version "ql-2023-10-21"))
-("split-sequence" .
- (:class qlot/source/ql:source-ql
-  :initargs (:%version :latest)
-  :version "ql-2023-10-21"))
-("parse-float" .
  (:class qlot/source/ql:source-ql
   :initargs (:%version :latest)
   :version "ql-2023-10-21"))
@@ -38,10 +22,10 @@
  (:class qlot/source/ql:source-ql
   :initargs (:%version :latest)
   :version "ql-2023-10-21"))
-("veer66-stream-par-procs" .
- (:class qlot/source/ultralisp:source-ultralisp
+("babel" .
+ (:class qlot/source/ql:source-ql
   :initargs (:%version :latest)
-  :version "ultralisp-20240113072000"))
+  :version "ql-2023-10-21"))
 ("40ants-cl-flamegraph" .
  (:class qlot/source/ultralisp:source-ultralisp
   :initargs (:%version :latest)

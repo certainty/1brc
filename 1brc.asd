@@ -10,14 +10,9 @@
   :entry-point "1brc:main"
   :depends-on (:alexandria
                :serapeum
-               :fast-io
                :mmap
-               :stream-par-procs
-               :split-sequence
-               :parse-float
                :lparallel
                :sb-sprof
-               :flamegraph
                :cffi)
   :in-order-to ((test-op (test-op "1brc/tests")))
   :serial t

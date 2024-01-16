@@ -12,7 +12,8 @@ repl:
 	@qlot exec ros -Q run
 
 build: deps
-	@qlot exec ros -Q run -e '(ql:quickload :1brc)' -e '(asdf:make :1brc)' --quit
+	@qlot exec sbcl --eval '(ql:quickload :1brc)' --eval '(asdf:make :1brc)' --quit
+	#@qlot exec ros -Q run -e '(ql:quickload :1brc)' -e '(asdf:make :1brc)' --quit
 
 deps:
 	@qlot install

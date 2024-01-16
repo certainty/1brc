@@ -111,10 +111,8 @@
       (declare (ignore fd))
       (let* ((chunk-size *chunk-size*)
              (segments (compute-segments ptr ptr-size chunk-size))
-             (segment-queue (lparallel.queue:make-queue :fixed-capacity (length segments)))
              (channel (lparallel:make-channel))
              (result (make-station-table)))
-        (declare (ignorable segment-queue))
 
         (format t "~%Processing file ~a with ~a segments of size ~a~%" path (length segments) chunk-size)
         (format t "Using ~a workers~%" *worker-count*)
