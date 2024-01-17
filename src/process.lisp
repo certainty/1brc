@@ -13,28 +13,22 @@
   (count 0 :type fixnum)
   (sum 0.0 :type single-float))
 
-;;; Parse a line of input into a station name and a temperature
-(-> parse-line ((vector character *) fixnum) (values string short-float))
-(defun parse-line (line line-size)
-  "Parses a line of input, which we know has a fixed format of <station>;<simple-float>\n.
-   Returns the station name and the simple-float."
-  (let ((semi (position #\; (the vector line))))
-    (values (subseq (the vector line) 0 semi)
-            (parse-simple-float (subseq (the vector line) (1+ semi) (1- line-size))))))
+(declaim (inline make-station))
+(defun make-station (temp) (make-%station :max-temp temp :min-temp temp :count 1 :sum temp))
 
 (-> parse-simple-float ((simple-array character *)) short-float)
 (defun parse-simple-float (str)
   "Parses a simple floating point number, which is guaranteed to have a single decimal point."
-  (let ((signed (char= (aref str 0) #\-)))
-    (loop
-      :with zero = (char-code #\0)
-      :with num :of-type fixnum := 0
-      :for c :of-type character :across str
-      :unless (or (char= c #\.) (char= c #\-))
-        :do (setq num (the fixnum (+ (* num 10) (- (the fixnum (char-code c)) zero))))
-      :finally (return (if signed
-                           (- (float (/ num 10)))
-                           (float (/ num 10)))))))
+  (loop
+    :with signed := (char= (aref str 0) #\-)
+    :with zero fixnum = (char-code #\0)
+    :with num fixnum := 0
+    :for c character :across str
+    :unless (or (char= c #\.) (char= c #\-))
+      :do (setq num (the fixnum (+ (* num 10) (- (the fixnum (char-code c)) zero))))
+    :finally (return (if signed
+                         (- (float (/ num 10)))
+                         (float (/ num 10))))))
 
 (-> read-line-from-foreign-ptr-into (t fixnum fixnum simple-string) fixnum)
 (defun read-line-from-foreign-ptr-into (ptr ptr-size start buffer)
@@ -52,58 +46,48 @@
    Segments are aligned at newline characters and will always include the final newline character.
    The segments don't overlap and will be in ascending order.
   "
-  (let ((segments (list))
-        (start (the (integer 0 *) 0)))
+  (when (>= minimum-chunk-size ptr-size)
+    (return-from compute-segments (list (cons 0 ptr-size))))
 
-    (when (>= minimum-chunk-size ptr-size)
-      (return-from compute-segments (list (cons start ptr-size))))
-
-    (loop :for end :of-type fixnum := (min (+ start minimum-chunk-size) ptr-size)
-          :while (< end ptr-size)
-          :do (setf end (forward-find-newline ptr ptr-size end))
-              (unless (null end)
-                (push (cons start end) segments))
-              (setf start (1+ end))
-          :finally (return (nreverse segments)))))
+  (loop :with segments = nil
+        :with start fixnum = 0
+        :for end fixnum = (min (+ start minimum-chunk-size) ptr-size)
+        :while (< end ptr-size)
+        :do (setf end (forward-find-newline ptr ptr-size end))
+            (when end
+              (push (cons start end) segments)
+              (setf start (1+ end)))
+        :finally (return (nreverse segments))))
 
 (-> forward-find-newline (t fixnum fixnum) (or null fixnum))
 (defun forward-find-newline (ptr ptr-size start)
-  (loop :for i :of-type fixnum :from start :below ptr-size
-        :for byte := (cffi:mem-aref ptr :char i)
+  (loop :for i fixnum :from start :below ptr-size
+        :for byte :of-type (unsigned-byte 8) = (cffi:mem-aref ptr :char i)
         :until (= byte 10)
-        :finally (return i)
-                 (if (= i ptr-size)
-                     (return nil)
-                     (return i))))
+        :finally (return i)))
 
-(-> process-chunk (hash-table simple-string t fixnum fixnum fixnum) hash-table)
-(defun process-chunk (hash-tab buffer ptr ptr-size start end)
-  (let ((offset start)
-        (line-size (the fixnum 0)))
-    (prog1 hash-tab
-      (loop
-        (when (>= (the fixnum offset) end)
-          (return hash-tab))
-        (setf line-size (the fixnum (read-line-from-foreign-ptr-into ptr ptr-size offset buffer)))
-        (incf offset line-size)
-        (multiple-value-bind (station-name temperature) (parse-line buffer line-size)
-          (let ((record (gethash station-name hash-tab)))
-            (cond
-              ((null record) (setf (gethash station-name hash-tab)
-                                   (make-%station :min-temp temperature :max-temp temperature :count 1 :sum temperature)))
-              (t
-               (incf (%station-count record))
-               (incf (%station-sum record) temperature)
-               (when (> temperature (%station-max-temp record))
-                 (setf (%station-max-temp record) temperature))
-               (when (< temperature (%station-min-temp record))
-                 (setf (%station-min-temp record) temperature))))))))))
-
-(-> processing-task (list t fixnum) hash-table)
-(defun processing-task (segment ptr ptr-size)
-  (let ((buffer (make-string 40))
-        (hash-tab (make-process-table)))
-    (process-chunk hash-tab buffer ptr ptr-size (car segment) (cdr segment))))
+(-> process-chunk (t fixnum fixnum fixnum) hash-table)
+(defun process-chunk (ptr ptr-size start end)
+  (loop :with offset fixnum = start
+        :with line-size fixnum = 0
+        :with buffer simple-string = (make-string 40)
+        :with hash-tab = (make-process-table)
+        :with station-name string
+        :with temperature short-float
+        :while (< offset end)
+        :do (setf line-size (the fixnum (read-line-from-foreign-ptr-into ptr ptr-size offset buffer)))
+            (incf offset line-size)
+            (let ((semi (position #\; buffer)))
+              (setf station-name (subseq buffer 0 semi)
+                    temperature (parse-simple-float (subseq buffer (1+ semi) (1- line-size)))))
+            (a:if-let ((record (gethash station-name hash-tab)))
+              (progn
+                (incf (%station-count record))
+                (incf (%station-sum record) temperature)
+                (a:maxf (%station-max-temp record) temperature)
+                (a:minf (%station-min-temp record) temperature))
+              (setf (gethash station-name hash-tab) (make-station temperature)))
+        :finally (return hash-tab)))
 
 (defun process-file (path)
   (let ((lparallel:*kernel* (lparallel:make-kernel *worker-count*)))
@@ -111,15 +95,15 @@
       (declare (ignore fd))
       (let* ((chunk-size *chunk-size*)
              (segments (compute-segments ptr ptr-size chunk-size))
-             (channel (lparallel:make-channel))
-             (result (make-station-table)))
+             (channel  (lparallel:make-channel))
+             (result   (make-station-table)))
 
         (format t "~%Processing file ~a with ~a segments of size ~a~%" path (length segments) chunk-size)
         (format t "Using ~a workers~%" *worker-count*)
 
         (prog1 result
           (dolist (segment segments)
-            (lparallel:submit-task channel (lambda () (processing-task segment ptr ptr-size))))
+            (lparallel:submit-task channel #'process-chunk ptr ptr-size (car segment) (cdr segment)))
 
           (format t "Waiting for ~a results~%" (length segments))
           (dotimes (i (length segments))
@@ -143,28 +127,24 @@
 (-> merge-station-tables (hash-table hash-table))
 (defun merge-station-tables (table-from-proc main-table)
   "Merge `table-from-proc' into `main-table'. This updates the station records in `main-table' with the values from `table-from-proc'.
-Since all values commute, this is easily doable"
+   Since all values commute, this is easily doable.
+  "
   (prog1 main-table
     (loop :for station :being :each :hash-key :of table-from-proc :using (hash-value record)
-          :do
-             (let ((main-record (gethash station main-table)))
-               (cond
-                 ((null main-record)
-                  (setf (gethash station main-table) record))
-                 (t
+          :do (a:if-let ((main-record (gethash station main-table)))
+                (progn
                   (incf (%station-count main-record) (%station-count record))
-                  (when (> (%station-max-temp record) (%station-max-temp main-record))
-                    (setf (%station-max-temp main-record) (%station-max-temp record)))
-                  (when (< (%station-min-temp record) (%station-min-temp main-record))
-                    (setf (%station-min-temp main-record) (%station-min-temp record)))
-                  (incf (%station-sum main-record) (%station-sum record))))))))
+                  (incf (%station-sum main-record) (%station-sum record))
+                  (a:maxf (%station-max-temp main-record) (%station-max-temp record))
+                  (a:minf (%station-min-temp main-record) (%station-min-temp record)))
+                (setf (gethash station main-table) record)))))
 
 (defun print-result (station-table)
-  (let ((keys (sort (a:hash-table-keys station-table) #'string<)))
-    (dolist (key keys)
-      (let ((record (gethash key station-table)))
-        (format t "~30,a min: ~,2f max: ~,2f mean: ~,2f~%" (format-station key) (%station-min-temp record) (%station-max-temp record) (/ (%station-sum record) (%station-count record)))))))
+  (dolist (key (sort (a:hash-table-keys station-table) #'string<))
+    (let ((record (gethash key station-table)))
+      (format t "~30,a min: ~,2f max: ~,2f mean: ~,2f~%" (format-station key) (%station-min-temp record) (%station-max-temp record) (/ (%station-sum record) (%station-count record))))))
 
+;; this seems roundabout
 (defun format-station (vec)
   (loop :with buffer = (make-array (length vec) :element-type '(unsigned-byte 8))
         :for c :across vec
