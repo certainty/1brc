@@ -26,7 +26,7 @@ You can tweak the behavior by setting the `WORKER_COUNT` and `CHUNK_SIZE` variab
 
 ## Results
 
-On my machine, this version runs in ~33 seconds on the 1 billion row file.
+On my machine, this version runs in ~28 seconds on the 1 billion row file.
 It is a relatively beefy Apple Mac Book Pro M2 and I've set the WORKER_COUNT=20 CHUNK_SIZE=50MB.
 That includes roughly 3 seconds of GC time, which I think I should be able to shave off, given that the fasted Java solution takes less that this in total. 
 
